@@ -4,18 +4,19 @@ Usage:
 python3 gen_model_answer.py --model-path lmsys/fastchat-t5-3b-v1.0 --model-id fastchat-t5-3b-v1.0
 """
 import argparse
-
+import torch
 from evaluation.eval import run_eval, reorg_answer_file
 
 from fastchat.utils import str_to_torch_dtype
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationMixin
-from model.sps.decoding import assisted_decoding
+from model.sps.decoding import assisted_decoding, new_assisted_decoding
 
 
 def sps_forward(inputs, model, tokenizer, max_new_tokens, do_sample=False, temperature=0.0, drafter=None):
     input_ids = inputs.input_ids
     model.generation_config.max_new_tokens = max_new_tokens
+    model.generation_config.num_assistant_tokens = 5
     output_ids, idx, accept_length_list = model.generate(
         **inputs, generation_config=model.generation_config, assistant_model=drafter, do_sample=do_sample, temperature=temperature)
     new_token = len(output_ids[0][len(input_ids[0]):])
@@ -88,7 +89,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    GenerationMixin.assisted_decoding = assisted_decoding
+    GenerationMixin._assisted_decoding = new_assisted_decoding
 
     question_file = f"data/{args.bench_name}/question.jsonl"
     if args.answer_file:
@@ -122,7 +123,8 @@ if __name__ == "__main__":
     else:
         do_sample = False
 
-    run_eval(
+    with torch.inference_mode():
+        run_eval(
         model=model,
         tokenizer=tokenizer,
         forward_func=sps_forward,
