@@ -13,14 +13,15 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationMixin
 from model.sps.decoding import assisted_decoding, new_assisted_decoding
 
 
-def sps_forward(inputs, model, tokenizer, max_new_tokens, do_sample=False, temperature=0.0, drafter=None):
+def sps_forward(inputs, model, tokenizer, max_new_tokens, do_sample=False, temperature=0.0, drafter=None, drafter_tokenizer=None, num_assistant_tokens=20):
     input_ids = inputs.input_ids
     model.generation_config.max_new_tokens = max_new_tokens
-    model.generation_config.num_assistant_tokens = 5
-    output_ids, idx, accept_length_list = model.generate(
-        **inputs, generation_config=model.generation_config, assistant_model=drafter, do_sample=do_sample, temperature=temperature)
+    drafter.max_new_tokens = max_new_tokens
+    drafter.generation_config.num_assistant_tokens = num_assistant_tokens
+    output_ids, idx, accept_length_list, assited_length_list = model.generate(
+        **inputs, generation_config=model.generation_config, assistant_model=drafter, do_sample=do_sample, temperature=temperature, tokenizer=tokenizer, assistant_tokenizer=drafter_tokenizer)
     new_token = len(output_ids[0][len(input_ids[0]):])
-    return output_ids, new_token, idx+1, accept_length_list
+    return output_ids, new_token, idx+1, accept_length_list, assited_length_list
 
 
 if __name__ == "__main__":
@@ -87,6 +88,12 @@ if __name__ == "__main__":
         choices=["float32", "float64", "float16", "bfloat16"],
         help="Override the default dtype. If not set, it will use float16 on GPU.",
     )
+    parser.add_argument(
+        "--num_assistant_tokens",
+        type=int,
+        default=20, 
+        help="Number of assistant tokens. Default 20.",
+    )
     args = parser.parse_args()
 
     GenerationMixin._assisted_decoding = new_assisted_decoding
@@ -114,6 +121,7 @@ if __name__ == "__main__":
     )
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_path)
+    drafter_tokenizer = AutoTokenizer.from_pretrained(args.drafter_path)
 
     model.eval()
     drafter.eval()
@@ -140,6 +148,8 @@ if __name__ == "__main__":
         drafter=drafter,
         temperature=args.temperature,
         do_sample=do_sample,
+        drafter_tokenizer=drafter_tokenizer,
+        num_assistant_tokens=args.num_assistant_tokens
     )
 
     reorg_answer_file(answer_file)

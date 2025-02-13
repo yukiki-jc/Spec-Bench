@@ -19,19 +19,20 @@ def generate_one_batch(bs, generate_length):
     generated_tokens = generate_length * bs 
     print(f"{bs=} {generate_length=} throughput={generated_tokens / (e - s):.2f} tokens/s")
 # 加载预训练模型和分词器
-model_name = "facebook/opt-6.7b" 
+model_name = "Qwen/Qwen2.5-7B-Instruct"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype="float16")
 
 # 你可以选择使用 GPU 加速
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model.to(device)
-bss = [2, 4, 8, 16, 32, 64, 128, 256, 512]
+# bss = [2, 4, 8, 16, 32, 64, 128, 256, 512]
+bss = [1]
 # warm up 
 generate_one_batch(10, 100)
 # bss = [2]
-# generate_lengths = [32, 64, 100, 128, 256, 512, 1024, 2048]
-generate_lengths = [32]
+generate_lengths = [32, 64, 100, 128, 256, 512, 1024, 2048]
+# generate_lengths = [320]
 # 输入提示
 
 with torch.inference_mode():

@@ -541,23 +541,26 @@ def new_assisted_decoding(
         batch_size = input_ids.shape[0]
         unfinished_sequences = torch.ones(batch_size, dtype=torch.long, device=input_ids.device)
         model_kwargs = self._get_initial_cache_position(input_ids, model_kwargs)
-        print(f"debug in assisted decoding")
+        # print(f"debug in assisted decoding")
         this_peer_finished = False
         is_first_iteration = True  # to preserve the same API in the output as other generation methods
         accept_length_list = []
+        assisted_length_list = []
         step = 0
         while self._has_unfinished_sequences(this_peer_finished, synced_gpus, device=input_ids.device):
             step += 1
             cur_len = input_ids.shape[-1]
-            print(f"debug this input tokens shape {input_ids.shape=}")
+            # print(f"debug this input tokens shape {input_ids.shape=}")
             #  1. Fetch candidate sequences from a `CandidateGenerator`
             candidate_input_ids, candidate_logits = candidate_generator.get_candidates(input_ids)
             # print(f"debug this input ids {candidate_input_ids=}")
-            print(f"debug this candidate tokens shape {candidate_input_ids.shape=}")
+            # print(f"debug this candidate tokens shape {candidate_input_ids.shape=}")
             if candidate_logits is not None:
                 candidate_logits = candidate_logits.to(self.device)
-
             candidate_length = candidate_input_ids.shape[1] - input_ids.shape[1]
+            generated_candidate_length = candidate_input_ids.shape[1] - cur_len 
+            # print(f"debug last candidated token {candidate_input_ids[0][-1]}")
+            assisted_length_list.append(generated_candidate_length)
             is_done_candidate = stopping_criteria(candidate_input_ids, None)
 
             # 2. Use the original model to obtain the next token logits given the candidate sequence. We obtain
@@ -641,9 +644,8 @@ def new_assisted_decoding(
             new_cache_size = new_cur_len - 1
             outputs.past_key_values = _crop_past_key_values(self, outputs.past_key_values, new_cache_size)
 
-            accept_length_tree = new_cur_len - cur_len
-            accept_length_list.append(accept_length_tree)
-        
+            accept_length_tree = new_cur_len - cur_len - 1 # 这里实际上多算了 1 ...
+            accept_length_list.append(accept_length_tree) 
             # 5. Update the candidate generation strategy if needed
             candidate_generator.update_candidate_strategy(input_ids, new_logits, n_matches)
 
@@ -699,6 +701,7 @@ def new_assisted_decoding(
                         )
 
             unfinished_sequences = unfinished_sequences & ~stopping_criteria(input_ids, scores)
+            stop = stopping_criteria(input_ids, scores)
             this_peer_finished = unfinished_sequences.max() == 0
             is_first_iteration = False
 
@@ -713,7 +716,7 @@ def new_assisted_decoding(
                 candidate_generator.num_assistant_tokens
             )
         idx = step - 1
-        print(f"debug {candidate_kwargs.keys()=}")     
+        # print(f"debug {candidate_kwargs.keys()=}")     
         
         if return_dict_in_generate:
             if self.config.is_encoder_decoder:
@@ -738,7 +741,7 @@ def new_assisted_decoding(
                     past_key_values=model_kwargs.get("past_key_values"),
                 )
         else:
-            return input_ids, idx, accept_length_list
+            return input_ids, idx, accept_length_list, assisted_length_list
         
 def _speculative_sampling(
     candidate_input_ids,

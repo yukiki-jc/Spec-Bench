@@ -22,7 +22,8 @@ def baseline_forward(inputs, model, tokenizer, max_new_tokens, temperature=0.0, 
     new_token = len(output_ids[0][len(input_ids[0]):])
     step = new_token
     accept_length_list = [1] * new_token
-    return output_ids, new_token, step, accept_length_list
+    assisted_length_list = [0] * new_token
+    return output_ids, new_token, step, accept_length_list, assisted_length_list
 
 
 if __name__ == "__main__":

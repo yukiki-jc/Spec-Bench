@@ -92,7 +92,7 @@ def get_model_answers(
     # warmup
     for _ in range(3):
         torch.manual_seed(0)
-        conv = get_conversation_template("vicuna")
+        conv = get_conversation_template("qwen")
         turns = []
         steps = []
         new_tokens = []
@@ -108,7 +108,7 @@ def get_model_answers(
             try:
                 torch.cuda.synchronize()
                 start_time = time.time()
-                output_ids, new_token, step, accept_length_tree = forward_func(
+                output_ids, new_token, step, accept_length_tree, assited_length_list = forward_func(
                     inputs,
                     model,
                     tokenizer,
@@ -161,6 +161,7 @@ def get_model_answers(
         choices = []
         for i in range(num_choices):
             cur_accept_lengths_tree = []
+            cur_assited_length_list = []
             torch.manual_seed(i)
             conv = get_conversation_template("vicuna")
             turns = []
@@ -178,7 +179,7 @@ def get_model_answers(
                 try:
                     torch.cuda.synchronize()
                     start_time = time.time()
-                    output_ids, new_token, step, accept_length_tree = forward_func(
+                    output_ids, new_token, step, accept_length_tree, assited_length_list = forward_func(
                         inputs,
                         model,
                         tokenizer,
@@ -216,18 +217,20 @@ def get_model_answers(
                     if conv.name == "xgen" and output.startswith("Assistant:"):
                         output = output.replace("Assistant:", "", 1).strip()
                 except RuntimeError as e:
+                    print(e)
                     print("ERROR question ID: ", question["question_id"])
-                    output = "ERROR"
+                    output = "errorERROR"
 
                 turns.append(output)
                 steps.append(int(step))
                 new_tokens.append(int(new_token))
                 wall_time.append(total_time)
                 cur_accept_lengths_tree.extend(accept_length_tree)
+                cur_assited_length_list.extend(assited_length_list)
                 conv.messages[-1][-1] = output
             # torch.cuda.empty_cache()
             choices.append({"index": i, "turns": turns, "decoding_steps": steps, "new_tokens": new_tokens, "wall_time": wall_time,
-                            "accept_lengths": cur_accept_lengths_tree})
+                            "accept_lengths": cur_accept_lengths_tree, "assited_lengths": cur_assited_length_list})
 
         # Dump answers
         os.makedirs(os.path.dirname(answer_file), exist_ok=True)

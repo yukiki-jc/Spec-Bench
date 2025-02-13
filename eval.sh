@@ -1,11 +1,15 @@
-Vicuna_PATH="lmsys/vicuna-7b-v1.3"
-Eagle_PATH=yuhuili/EAGLE-Vicuna-7B-v1.3
+Vicuna_PATH="Qwen/Qwen2.5-7B-Instruct"
+# Eagle_PATH=yuhuili/EAGLE-Vicuna-7B-v1.3
 # Medusa_PATH=/your_own_path/medusa-vicuna-7b-v1.3
 # Hydra_PATH=/your_own_path/hydra-vicuna-7b-v1.3
-Drafter_PATH=double7/vicuna-68m
+# Drafter_PATH=double7/vicuna-68m
+Drafter_PATH="Qwen/Qwen2.5-0.5B-Instruct"
+
 # Space_PATH=/your_own_path/vicuna-v1.3-7b-space
 datastore_PATH=./model/rest/datastore/datastore_chat_large.idx
-MODEL_NAME=vicuna-7b-v1.3
+MODEL_NAME=Qwen2.5-7B-Instruct
+DRAFT_MODEL_NAME=Qwen2.5-0.5B-Instruct
+# MODEL_NAME="facebook/opt-2.7b"
 TEMP=0.0
 GPU_DEVICES=0
 
@@ -13,7 +17,15 @@ bench_NAME="spec_bench"
 torch_dtype="float16" # ["float32", "float64", "float16", "bfloat16"]
 
 # CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_baseline --model-path $Vicuna_PATH --model-id ${MODEL_NAME}-vanilla-${torch_dtype}-temp-${TEMP} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype
-CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_sps --model-path $Vicuna_PATH --drafter-path $Drafter_PATH --model-id ${MODEL_NAME}-sps-68m-${torch_dtype}-temp-${TEMP} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype
+# CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_baseline --model-path $Vicuna_PATH --model-id ${MODEL_NAME}-vanilla-${torch_dtype}-temp-${TEMP} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype
+
+for num_assistant_tokens in 15 25 35
+do 
+    CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_sps --model-path $Vicuna_PATH --drafter-path $Drafter_PATH --model-id ${MODEL_NAME}-sps-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --num_assistant_tokens ${num_assistant_tokens}
+done
+# Drafter_PATH="Qwen/Qwen2.5-1.5B-Instruct"
+# DRAFT_MODEL_NAME=Qwen2.5-1.5B-Instruct
+# CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_sps --model-path $Vicuna_PATH --drafter-path $Drafter_PATH --model-id ${MODEL_NAME}-sps-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype
 # CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_medusa --model-path $Medusa_PATH --base-model $Vicuna_PATH --model-id ${MODEL_NAME}-medusa-${torch_dtype} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype
 # CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_eagle --ea-model-path $Eagle_PATH --base-model-path $Vicuna_PATH --model-id ${MODEL_NAME}-eagle-${torch_dtype} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype
 # CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_eagle2 --ea-model-path $Eagle_PATH --base-model-path $Vicuna_PATH --model-id ${MODEL_NAME}-eagle2-${torch_dtype} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype
