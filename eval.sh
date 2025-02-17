@@ -10,13 +10,13 @@ datastore_PATH=./model/rest/datastore/datastore_chat_large.idx
 MODEL_NAME="MobileLLM-1.5B"
 DRAFT_MODEL_NAME="MobileLLM-125M"
 # MODEL_NAME="facebook/opt-2.7b"
-TEMP=0.0
+TEMP=0.5
 GPU_DEVICES=0
 
 bench_NAME="spec_bench"
 torch_dtype="float16" # ["float32", "float64", "float16", "bfloat16"]
 
-CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_baseline --model-path $Vicuna_PATH --model-id ${MODEL_NAME}-vanilla-${torch_dtype}-temp-${TEMP} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --max-new-tokens 512
+# CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_baseline --model-path $Vicuna_PATH --model-id ${MODEL_NAME}-vanilla-${torch_dtype}-temp-${TEMP} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --max-new-tokens 512
 
 for num_assistant_tokens in 5 15 25 35
 do 
