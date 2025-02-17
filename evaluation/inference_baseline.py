@@ -18,8 +18,7 @@ def baseline_forward(inputs, model, tokenizer, max_new_tokens, temperature=0.0, 
         input_ids,
         do_sample=do_sample,
         temperature=temperature,
-        max_new_tokens=max_new_tokens,
-        repetition_penalty=2.0,  pad_token_id=tokenizer.eos_token_id
+        max_new_tokens=max_new_tokens
     )
     new_token = len(output_ids[0][len(input_ids[0]):])
     step = new_token
@@ -90,7 +89,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    question_file = f"data/{args.bench_name}/question_small.jsonl"
+    question_file = f"data/{args.bench_name}/question.jsonl"
 
     if args.answer_file:
         answer_file = args.answer_file

@@ -1,26 +1,26 @@
-Vicuna_PATH="facebook/MobileLLM-1.5B"
+Vicuna_PATH="lmsys/vicuna-7b-v1.3"
 # Eagle_PATH=yuhuili/EAGLE-Vicuna-7B-v1.3
 # Medusa_PATH=/your_own_path/medusa-vicuna-7b-v1.3
 # Hydra_PATH=/your_own_path/hydra-vicuna-7b-v1.3
-# Drafter_PATH=double7/vicuna-68m
-Drafter_PATH="facebook/MobileLLM-125M"
+Drafter_PATH=double7/vicuna-68m
+# Drafter_PATH="facebook/MobileLLM-125M"
 
 # Space_PATH=/your_own_path/vicuna-v1.3-7b-space
 datastore_PATH=./model/rest/datastore/datastore_chat_large.idx
-MODEL_NAME="MobileLLM-1.5B"
-DRAFT_MODEL_NAME="MobileLLM-125M"
+MODEL_NAME="vicuna-7b-v1.3"
+DRAFT_MODEL_NAME="vicuna-68m"
 # MODEL_NAME="facebook/opt-2.7b"
-TEMP=0.5
+TEMP=0.1
 GPU_DEVICES=0
 
 bench_NAME="spec_bench"
 torch_dtype="float16" # ["float32", "float64", "float16", "bfloat16"]
 
-# CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_baseline --model-path $Vicuna_PATH --model-id ${MODEL_NAME}-vanilla-${torch_dtype}-temp-${TEMP} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --max-new-tokens 512
+CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_baseline --model-path $Vicuna_PATH --model-id ${MODEL_NAME}-vanilla-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --max-new-tokens 1024
 
-for num_assistant_tokens in 5 15 25 35
+for num_assistant_tokens in 5 10 15 20 25
 do 
-    CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_sps --model-path $Vicuna_PATH --drafter-path $Drafter_PATH --model-id ${MODEL_NAME}-sps-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --num_assistant_tokens ${num_assistant_tokens} --max-new-tokens 512
+    CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_sps --model-path $Vicuna_PATH --drafter-path $Drafter_PATH --model-id ${MODEL_NAME}-sps-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --num_assistant_tokens ${num_assistant_tokens} --max-new-tokens 1024
 done
 # Drafter_PATH="Qwen/Qwen2.5-1.5B-Instruct"
 # DRAFT_MODEL_NAME=Qwen2.5-1.5B-Instruct

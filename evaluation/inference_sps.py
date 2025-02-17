@@ -21,7 +21,7 @@ def sps_forward(inputs, model, tokenizer, max_new_tokens, do_sample=False, tempe
     model.generation_config.pad_token_id = tokenizer.pad_token_id
     drafter.generation_config.pad_token_id = drafter_tokenizer.pad_token_id
     output_ids, idx, accept_length_list, assited_length_list = model.generate(
-        **inputs, generation_config=model.generation_config, assistant_model=drafter, do_sample=do_sample, temperature=temperature, tokenizer=tokenizer, repetition_penalty=2.0,  pad_token_id=tokenizer.eos_token_id)
+        **inputs, generation_config=model.generation_config, assistant_model=drafter, do_sample=do_sample, temperature=temperature, tokenizer=tokenizer)
     new_token = len(output_ids[0][len(input_ids[0]):])
     return output_ids, new_token, idx+1, accept_length_list, assited_length_list
 
@@ -100,7 +100,7 @@ if __name__ == "__main__":
 
     GenerationMixin._assisted_decoding = new_assisted_decoding
 
-    question_file = f"data/{args.bench_name}/question_small.jsonl"
+    question_file = f"data/{args.bench_name}/question.jsonl"
     if args.answer_file:
         answer_file = args.answer_file
     else:
@@ -144,10 +144,10 @@ if __name__ == "__main__":
     model.eval()
     drafter.eval()
 
-    if args.temperature > 0:
-        do_sample = True
-    else:
-        do_sample = False
+    # if args.temperature > 0:
+    do_sample = True
+    # else:
+    #     do_sample = False
     with torch.inference_mode():
         run_eval(
         model=model,
