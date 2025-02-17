@@ -12,12 +12,14 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 def baseline_forward(inputs, model, tokenizer, max_new_tokens, temperature=0.0, do_sample=False):
+    model.generation_config.pad_token_id = tokenizer.pad_token_id
     input_ids = inputs.input_ids
     output_ids = model.generate(
         input_ids,
         do_sample=do_sample,
         temperature=temperature,
         max_new_tokens=max_new_tokens,
+        repetition_penalty=2.0,  pad_token_id=tokenizer.eos_token_id
     )
     new_token = len(output_ids[0][len(input_ids[0]):])
     step = new_token
@@ -88,7 +90,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    question_file = f"data/{args.bench_name}/question.jsonl"
+    question_file = f"data/{args.bench_name}/question_small.jsonl"
 
     if args.answer_file:
         answer_file = args.answer_file
@@ -101,11 +103,18 @@ if __name__ == "__main__":
         args.model_path,
         torch_dtype=str_to_torch_dtype(args.dtype),
         low_cpu_mem_usage=True,
-        device_map="auto"
+        device_map="auto",
+        trust_remote_code=True
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_path)
-
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path, use_fast=False)
+    if "MobileLLM" in args.model_path: 
+        tokenizer.add_special_tokens(
+        {
+            "eos_token": "</s>",
+            "bos_token": "<s>",
+            "unk_token": "<unk>",
+        })
     if args.temperature > 0:
         do_sample = True
     else:

@@ -18,8 +18,10 @@ def sps_forward(inputs, model, tokenizer, max_new_tokens, do_sample=False, tempe
     model.generation_config.max_new_tokens = max_new_tokens
     drafter.max_new_tokens = max_new_tokens
     drafter.generation_config.num_assistant_tokens = num_assistant_tokens
+    model.generation_config.pad_token_id = tokenizer.pad_token_id
+    drafter.generation_config.pad_token_id = drafter_tokenizer.pad_token_id
     output_ids, idx, accept_length_list, assited_length_list = model.generate(
-        **inputs, generation_config=model.generation_config, assistant_model=drafter, do_sample=do_sample, temperature=temperature, tokenizer=tokenizer, assistant_tokenizer=drafter_tokenizer)
+        **inputs, generation_config=model.generation_config, assistant_model=drafter, do_sample=do_sample, temperature=temperature, tokenizer=tokenizer, repetition_penalty=2.0,  pad_token_id=tokenizer.eos_token_id)
     new_token = len(output_ids[0][len(input_ids[0]):])
     return output_ids, new_token, idx+1, accept_length_list, assited_length_list
 
@@ -98,7 +100,7 @@ if __name__ == "__main__":
 
     GenerationMixin._assisted_decoding = new_assisted_decoding
 
-    question_file = f"data/{args.bench_name}/question.jsonl"
+    question_file = f"data/{args.bench_name}/question_small.jsonl"
     if args.answer_file:
         answer_file = args.answer_file
     else:
@@ -110,19 +112,35 @@ if __name__ == "__main__":
         args.model_path,
         torch_dtype=str_to_torch_dtype(args.dtype),
         low_cpu_mem_usage=True,
-        device_map="auto"
+        device_map="auto",
+        trust_remote_code=True
     )
 
     drafter = AutoModelForCausalLM.from_pretrained(
         args.drafter_path,
         torch_dtype=str_to_torch_dtype(args.dtype),
         low_cpu_mem_usage=True,
-        device_map="auto"
+        device_map="auto",
+        trust_remote_code=True
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_path)
-    drafter_tokenizer = AutoTokenizer.from_pretrained(args.drafter_path)
-
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path, use_fast=False)
+    drafter_tokenizer = AutoTokenizer.from_pretrained(args.drafter_path, use_fast=False)
+    if "MobileLLM" in args.model_path: 
+        tokenizer.add_special_tokens(
+        {
+            "eos_token": "</s>",
+            "bos_token": "<s>",
+            "unk_token": "<unk>",
+        })
+        drafter_tokenizer.add_special_tokens(
+        {
+            "eos_token": "</s>",
+            "bos_token": "<s>",
+            "unk_token": "<unk>",
+        })
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+        drafter_tokenizer.pad_token_id = drafter_tokenizer.eos_token_id
     model.eval()
     drafter.eval()
 
@@ -130,7 +148,6 @@ if __name__ == "__main__":
         do_sample = True
     else:
         do_sample = False
-
     with torch.inference_mode():
         run_eval(
         model=model,

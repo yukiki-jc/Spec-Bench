@@ -163,7 +163,7 @@ def get_model_answers(
             cur_accept_lengths_tree = []
             cur_assited_length_list = []
             torch.manual_seed(i)
-            conv = get_conversation_template("vicuna")
+            conv = get_conversation_template(model_id)
             turns = []
             steps = []
             new_tokens = []
