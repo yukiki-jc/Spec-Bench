@@ -467,6 +467,46 @@ def assisted_decoding(
     else:
         return input_ids, idx, accept_length_list
 
+import numpy as np
+def calculate_entropy(probabilities):
+    # 排除概率为0的情况，避免计算log(0)
+    probabilities = np.array(probabilities)
+    probabilities = probabilities[probabilities > 0]  # 仅保留 > 0 的概率
+    entropy = -np.sum(probabilities * np.log2(probabilities))  # 使用以2为底的log
+    return entropy
+
+def calculate_confidence(p):
+    p = p.detach().cpu().numpy()
+    entropy = calculate_entropy(p)
+    gamma = 0.2
+    r = 1 - np.sqrt(entropy * gamma)
+    return r
+import matplotlib.pyplot as plt
+def draw_probability(p, suffix, step):
+    
+    p = p.detach().cpu().numpy()
+    
+    plt.clf()
+    plt.cla()
+    # 计算每个概率值的标签（例如：p[0], p[1], ...）
+    labels = [i for i in range(len(p))]
+
+    # 绘制柱状图
+    plt.figure(figsize=(10, 6))
+    plt.plot(labels, p, color='skyblue')
+
+    # 设置图表的标题和标签
+    plt.title('Probability Distribution')
+    plt.xlabel('Events')
+    plt.ylabel('Probability')
+    # 显示图形
+    plt.ylim(0, 1.1)  # 设置 y 轴范围
+    # plt.axhline(0, color='grey', lw=0.8)  # 添加x轴
+    plt.grid(axis='y', linestyle='--', alpha=0.7)  # 添加y轴网格
+    # plt.tight_layout()
+    plt.savefig(f"prob_{step}_{suffix}.png")
+    
+    
 def new_assisted_decoding(
         self,
         input_ids: torch.LongTensor,
@@ -610,7 +650,28 @@ def new_assisted_decoding(
                     new_logits,
                     is_done_candidate,
                 )
-
+                if n_matches > 0: 
+                    print(f"---accepted tokens in step {step}---")
+                    q = candidate_logits.softmax(dim=-1)
+                    max_token_prob = torch.max(q[0][0])
+                    max_token_idx = torch.argmax(q[0][0])
+                    print(f"accepted token prob: {max_token_prob}, idx: {max_token_idx}")
+                    print(f"accepted confidence {calculate_confidence(q)}")
+                else: 
+                    print(f"---no tokens in step {step}---")
+                    q = candidate_logits.softmax(dim=-1)
+                    max_token_prob = torch.max(q[0][0])
+                    max_token_idx = torch.argmax(q[0][0])
+                    print(f"rejected token prob in draft: {max_token_prob}, idx: {max_token_idx}")
+                    confidence = calculate_confidence(q)
+                    print(f"confidence {confidence}")
+                    p = new_logits.softmax(dim=-1)
+                    max_token_prob = torch.max(p[0][0])
+                    max_token_idx = torch.argmax(p[0][0])
+                    print(f"rejected token prob in target: {max_token_prob}, idx: {max_token_idx}")
+                    # if confidence > 0.99:
+                    #     draw_probability(p[0][0], "target", step)
+                    #     draw_probability(q[0][0], "draft", step)
             # Case 2: all other cases (originally from assisted generation) 👉 Compare the tokens selected from the
             # original model logits with the candidate tokens. We can keep the candidate tokens until the first
             # mismatch, or until the max length is reached.
