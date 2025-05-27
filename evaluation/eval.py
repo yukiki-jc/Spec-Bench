@@ -178,7 +178,7 @@ def get_model_answers(
                 input_ids = inputs.input_ids
                 try:
                     torch.cuda.synchronize()
-                    start_time = time.time()
+                    start_time = time.perf_counter()
                     output_ids, new_token, step, accept_length_tree, assited_length_list = forward_func(
                         inputs,
                         model,
@@ -187,7 +187,7 @@ def get_model_answers(
                         **kwargs,
                     )
                     torch.cuda.synchronize()
-                    total_time = time.time() - start_time
+                    total_time = time.perf_counter() - start_time
                     accept_lengths_tree.extend(accept_length_tree)
                     output_ids = output_ids[0][len(input_ids[0]):]
 
