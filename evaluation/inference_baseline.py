@@ -3,21 +3,25 @@
 Usage:
 python3 gen_model_answer.py --model-path lmsys/fastchat-t5-3b-v1.0 --model-id fastchat-t5-3b-v1.0
 """
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import argparse
 from fastchat.utils import str_to_torch_dtype
 
 from evaluation.eval import run_eval, reorg_answer_file
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pipeline_spec.src.utils.config import SERVER_URL
+from pipeline_spec.src.model.vice_wrapper import ViceModelWrapper
 
 def baseline_forward(inputs, model, tokenizer, max_new_tokens, temperature=0.0, do_sample=False):
-    model.generation_config.pad_token_id = tokenizer.pad_token_id
+    # model.generation_config.pad_token_id = tokenizer.pad_token_id # comment out for edge spec 
     input_ids = inputs.input_ids
     output_ids = model.generate(
-        input_ids,
+        **inputs,
         do_sample=do_sample,
-        temperature=temperature,
+        # temperature=temperature,
         max_new_tokens=max_new_tokens
     )
     new_token = len(output_ids[0][len(input_ids[0]):])
@@ -86,6 +90,12 @@ if __name__ == "__main__":
         choices=["float32", "float64", "float16", "bfloat16"],
         help="Override the default dtype. If not set, it will use float16 on GPU.",
     )
+    parser.add_argument(
+        "--use-edgespec",
+        default=False,
+        action='store_true',
+        help="Use edgespec for inference. If set, it will use the ViceModelWrapper"
+    )
 
     args = parser.parse_args()
 
@@ -97,8 +107,12 @@ if __name__ == "__main__":
         answer_file = f"data/{args.bench_name}/model_answer/{args.model_id}.jsonl"
 
     print(f"Output to {answer_file}")
-
-    model = AutoModelForCausalLM.from_pretrained(
+    if args.use_edgespec:
+        
+        target_model_config = AutoConfig.from_pretrained(args.model_path)
+        model = ViceModelWrapper(use_async=False, real_model_config=target_model_config, real_model_is_stateful=False, url=SERVER_URL)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
         args.model_path,
         torch_dtype=str_to_torch_dtype(args.dtype),
         low_cpu_mem_usage=True,

@@ -32,6 +32,7 @@ def run_eval(
         num_gpus_total,
         **kwargs,
 ):
+    print(f"Question file: {question_file}")
     questions = load_questions(question_file, question_begin, question_end)
 
     # Split the question file into `num_gpus` files
@@ -82,7 +83,7 @@ def get_model_answers(
 ):
 
     model.eval()
-    print('Check model training state:', model.training)
+    # print('Check model training state:', model.training)
 
     cuda_visible_devices = os.environ.get('CUDA_VISIBLE_DEVICES')
     print('CUDA VISIBLE DEVICES:', cuda_visible_devices)
@@ -90,7 +91,7 @@ def get_model_answers(
     question = questions[0]
 
     # warmup
-    for _ in range(3):
+    for _ in range(0):
         torch.manual_seed(0)
         conv = get_conversation_template("qwen")
         turns = []
@@ -235,6 +236,7 @@ def get_model_answers(
         # Dump answers
         os.makedirs(os.path.dirname(answer_file), exist_ok=True)
         with open(os.path.expanduser(answer_file), "a") as fout:
+            print("Dumping answers to", answer_file)
             ans_json = {
                 "question_id": question["question_id"],
                 "category": question["category"],

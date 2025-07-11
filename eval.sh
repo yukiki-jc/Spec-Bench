@@ -18,7 +18,7 @@ DRAFT_MODEL_NAME="vicuna-68m"
 TEMP=0
 GPU_DEVICES=0
 
-bench_NAME="pipespec_bench_dev"
+bench_NAME="pipespec_bench_0.05_0.03_0.15"
 torch_dtype="float16" # ["float32", "float64", "float16", "bfloat16"]
 
 # CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_baseline --model-path $Vicuna_PATH --model-id ${MODEL_NAME}-vanilla-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --max-new-tokens 1024
@@ -32,8 +32,11 @@ do
     # CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_sps --model-path $Vicuna_PATH --drafter-path $Drafter_PATH --model-id ${MODEL_NAME}-sps_pruned_spec-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --num_assistant_tokens ${num_assistant_tokens} --max-new-tokens 1024 --ckpt /home/jingcan/workspace/dev_spec/LLM-Pruner/prune_log/vicuna_68m_prune_spec_0.9/pytorch_model.bin
 
     # CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_pipespec --model-path $Vicuna_PATH --drafter-path $Drafter_PATH --model-id ${MODEL_NAME}-pipespec-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --num_assistant_tokens ${num_assistant_tokens} --max-new-tokens 1024 > ${MODEL_NAME}-pipespec-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens}.log 2>&1
+    mode="pipespec_mp_async"
+    CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_pipespec --model-path $Vicuna_PATH --drafter-path $Drafter_PATH --model-id ${MODEL_NAME}-${mode}-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --num_assistant_tokens ${num_assistant_tokens} --max-new-tokens 512 --async-mode True > ${MODEL_NAME}-${mode}-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens}.log 2>&1
 
-    CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_pipespec --model-path $Vicuna_PATH --drafter-path $Drafter_PATH --model-id ${MODEL_NAME}-pipespec_async-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --num_assistant_tokens ${num_assistant_tokens} --max-new-tokens 1024 --async-mode True > ${MODEL_NAME}-pipespec_async-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens}.log 2>&1
+    # mode="edge_sepc"
+    # CUDA_VISIBLE_DEVICES=${GPU_DEVICES} python -m evaluation.inference_baseline --model-path $Vicuna_PATH --model-id ${MODEL_NAME}-${mode}-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype  --max-new-tokens 512 --use-edgespec > ${MODEL_NAME}-${mode}-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens}.log 2>&1
 done
 # Drafter_PATH="Qwen/Qwen2.5-1.5B-Instruct"
 # DRAFT_MODEL_NAME=Qwen2.5-1.5B-Instruct

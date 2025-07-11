@@ -9,18 +9,23 @@ from evaluation.eval import run_eval, reorg_answer_file
 
 from fastchat.utils import str_to_torch_dtype
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationMixin
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationMixin, AutoConfig
 from model.sps.decoding import assisted_decoding, new_assisted_decoding
 import sys 
-import os 
+import os
+
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from pipeline_spec.spec_wrapper import AsyncSpecDecodingWrapper, SpecLlamaForCausalLM
-from pipeline_spec.spec_wrapper import ViceModelWrapper, SpecDecodingWrapper
+from pipeline_spec.src.utils.config import CLIENT_DEVICE, SERVER_URL 
+from pipeline_spec.src.model.spec_wrapper import AsyncSpecDecodingWrapper, SpecLlamaForCausalLM
+from pipeline_spec.src.model.spec_wrapper import SpecDecodingWrapper
+from pipeline_spec.src.model.vice_wrapper import ViceModelWrapper
 from model.pipespec.decoding import async_target_generate, target_generate, async_spec_decoding, spec_decoding
 from loguru import logger
 
 def pipespec_forward(inputs, model, tokenizer, max_new_tokens, do_sample=False, temperature=0.0, drafter=None, drafter_tokenizer=None, num_assistant_tokens=4, assistant_confidence_threshold=0.0):
     input_ids = inputs.input_ids
+    input_len = len(input_ids[0])
     generation_config = {}
     generation_config["max_new_tokens"] = max_new_tokens
     drafter.max_new_tokens = max_new_tokens
@@ -30,7 +35,7 @@ def pipespec_forward(inputs, model, tokenizer, max_new_tokens, do_sample=False, 
     drafter.generation_config.pad_token_id = drafter_tokenizer.pad_token_id
     output_ids, idx, accept_length_list, assited_length_list = model.generate(
         **inputs, **generation_config, assistant_model=drafter, do_sample=do_sample)
-    new_token = len(output_ids[0][len(input_ids[0]):])
+    new_token = len(output_ids[0]) - input_len
     return output_ids, new_token, idx+1, accept_length_list, assited_length_list
 
 
@@ -128,12 +133,11 @@ if __name__ == "__main__":
     # draft_model_name = "double7/vicuna-68m"
     # target_model_name = "lmsys/vicuna-7b-v1.3"
     draft_tokenizer = AutoTokenizer.from_pretrained(args.drafter_path)
-    draft_model = SpecLlamaForCausalLM.from_pretrained(args.drafter_path, torch_dtype="float16")
+    draft_model = SpecLlamaForCausalLM.from_pretrained(args.drafter_path, torch_dtype="float16").to(CLIENT_DEVICE)
 
     target_tokenizer = AutoTokenizer.from_pretrained(args.model_path)
-    target_model = SpecLlamaForCausalLM.from_pretrained(args.model_path, torch_dtype="float16")
-    # current real model is local, will be replaced by a remote model in the future
-    vice_target_model = ViceModelWrapper(real_model_config=target_model.config, real_model_is_stateful=target_model._is_stateful, use_async=args.async_mode)
+    target_model_config = AutoConfig.from_pretrained(args.model_path)
+    vice_target_model = ViceModelWrapper(use_async=args.async_mode, real_model_config=target_model_config, real_model_is_stateful=False, url=SERVER_URL)
     
     
     if args.async_mode:
@@ -142,7 +146,6 @@ if __name__ == "__main__":
     else:
         inference_model = SpecDecodingWrapper(draft_model, vice_target_model)
         
-    del target_model
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, use_fast=False)
     drafter_tokenizer = AutoTokenizer.from_pretrained(args.drafter_path, use_fast=False)
     if "MobileLLM" in args.model_path: 

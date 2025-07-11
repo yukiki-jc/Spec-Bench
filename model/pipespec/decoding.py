@@ -2,16 +2,18 @@ import sys
 import os
 import time
 
-from pipeline_spec.rpc.utils import from_dict_to_request_response, from_request_to_dict 
+from pipeline_spec.src.utils.config import TRIM_LEVEL
+from pipeline_spec.src.utils.streaming_utils import trim_ids
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from pipeline_spec.src.rpc.utils import from_dict_to_request_response, from_request_to_dict 
 import torch 
 from transformers import GenerationConfig, StoppingCriteriaList, LogitsProcessorList
 from transformers.generation.candidate_generator import CandidateGenerator
 from typing import Optional, Union
 import asyncio
 from loguru import logger
-from pipeline_spec.timer import Timer
-from pipeline_spec.generation_utils import longest_common_prefix_index
+from pipeline_spec.src.utils.timer import Timer
+from pipeline_spec.src.model.generation_mixin import longest_common_prefix_index
 from transformers.generation.utils import LogitsProcessorList, StoppingCriteriaList, GreedySearchOutput, ModelOutput, GenerationConfig, GenerateNonBeamOutput
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
@@ -95,9 +97,12 @@ class GenerateDecoderOnlyOutput(ModelOutput):
     attentions: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     hidden_states: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     past_key_values: Optional[Tuple[Tuple[Tuple[torch.FloatTensor]]]] = None
-    
+
 async def async_target_generate(self, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, cur_len, input_ids, is_done_candidate, candidate_generator=None, streamer=None, synced_gpus=None, order=0):
         # 确保在当前事件循环中设置异步 channel
+        trim_level = TRIM_LEVEL
+        input_ids, candidate_input_ids = trim_ids(input_ids, candidate_input_ids, candidate_length, trim_level=trim_level)
+        logger.info(f"debug vice target_generate after trim {order=} {input_ids.shape=}")
         self._ensure_async_setup()
         request = from_dict_to_request_response(
             name="target_generate", 
@@ -112,7 +117,7 @@ async def async_target_generate(self, candidate_input_ids, candidate_logits, can
         return_response = {"this_peer_finished": False, "input_ids": torch.tensor([]), "accepted_length": 0}  
         try:
             # 使用异步调用
-            # logger.info(f"debug sending to target {order=} {input_ids=}")
+            logger.info(f"debug sending to target {order=}")
             response = await self.async_stub.target_generate(request)
             response = from_request_to_dict(response)
             return_response.update(response)
@@ -120,10 +125,14 @@ async def async_target_generate(self, candidate_input_ids, candidate_logits, can
         except Exception as e:
             print(f"async grpc error: {e}")
             raise
+        
 
-def target_generate(self, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, cur_len, input_ids, is_done_candidate, candidate_generator=None, streamer=None, synced_gpus=None):
+def target_generate(self, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, cur_len, input_ids, is_done_candidate, candidate_generator=None, streamer=None, synced_gpus=None, order=0, trim_level=None):
+        if trim_level is None: 
+            trim_level = TRIM_LEVEL
         stub = self.stub
         # lists = ['input_ids', 'attention_mask']
+        input_ids, candidate_input_ids = trim_ids(input_ids, candidate_input_ids, candidate_length, trim_level=trim_level)
         request = from_dict_to_request_response(
             name="target_generate", 
             candidate_input_ids=candidate_input_ids, 
@@ -132,15 +141,11 @@ def target_generate(self, candidate_input_ids, candidate_logits, candidate_logit
             candidate_length=candidate_length, 
             cur_len=cur_len, 
             input_ids=input_ids, 
-            is_done_candidate=is_done_candidate)     
+            is_done_candidate=is_done_candidate, order=order)     
         return_response = {"this_peer_finished": False, "input_ids": torch.tensor([]), "accepted_length": 0}  
         response = stub.target_generate(request)
-        # print(f"debug raw {response=}")
         response = from_request_to_dict(response)
-        # print(f"debug {response=}")
         return_response.update(response)
-        # ref_response = self.real_model.target_generate(candidate_input_ids, candidate_logits, candidate_length, cur_len, input_ids, is_done_candidate, candidate_generator, streamer, synced_gpus)
-        # print(f"debug {ref_response=}")
         return return_response['input_ids'], return_response['this_peer_finished'], return_response['accepted_length']
        
 async def async_spec_decoding(
@@ -246,7 +251,6 @@ async def async_spec_decoding(
             if is_async_req:
                 async_reqs.append(order)
             with Timer(f"draft_generate order={order}" if not is_async_req else f"draft_generate_async order={order}"):
-                time.sleep(0.1)
                 cur_len, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, is_done_candidate  = self.draft_model.draft_generate(input_ids, candidate_generator, stopping_criteria)
             # barrier to avoid sending overwhelming requests
             if order > 0 and (
@@ -384,7 +388,6 @@ def spec_decoding(
         while self.draft_model._has_unfinished_sequences(this_peer_finished, synced_gpus, device=input_ids.device):
             step += 1
             with Timer("draft_generate"):
-                time.sleep(0.1)
                 cur_len, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, is_done_candidate  = self.draft_model.draft_generate(input_ids, candidate_generator, stopping_criteria)
             counter += 1
             if do_sample == False: 
