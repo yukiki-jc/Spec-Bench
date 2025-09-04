@@ -2,7 +2,7 @@ import sys
 import os
 import time
 
-from pipeline_spec.src.utils.config import TRIM_LEVEL
+from pipeline_spec.src.utils.config import TRIM_LEVEL, ASYNC_STEP
 from pipeline_spec.src.utils.streaming_utils import trim_ids
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from pipeline_spec.src.rpc.utils import from_dict_to_request_response, from_request_to_dict 
@@ -11,7 +11,8 @@ from transformers import GenerationConfig, StoppingCriteriaList, LogitsProcessor
 from transformers.generation.candidate_generator import CandidateGenerator
 from typing import Optional, Union
 import asyncio
-from loguru import logger
+# from loguru import logger
+from pipeline_spec.src.utils.debug_logger import my_logger
 from pipeline_spec.src.utils.timer import Timer
 from pipeline_spec.src.model.generation_mixin import longest_common_prefix_index
 from transformers.generation.utils import LogitsProcessorList, StoppingCriteriaList, GreedySearchOutput, ModelOutput, GenerationConfig, GenerateNonBeamOutput
@@ -98,35 +99,47 @@ class GenerateDecoderOnlyOutput(ModelOutput):
     hidden_states: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     past_key_values: Optional[Tuple[Tuple[Tuple[torch.FloatTensor]]]] = None
 
-async def async_target_generate(self, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, cur_len, input_ids, is_done_candidate, candidate_generator=None, streamer=None, synced_gpus=None, order=0):
+async def async_target_generate(self, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, cur_len, input_ids, is_done_candidate, candidate_generator=None, streamer=None, synced_gpus=None, order=0, **kwargs):
         # 确保在当前事件循环中设置异步 channel
-        trim_level = TRIM_LEVEL
-        input_ids, candidate_input_ids = trim_ids(input_ids, candidate_input_ids, candidate_length, trim_level=trim_level)
-        logger.info(f"debug vice target_generate after trim {order=} {input_ids.shape=}")
-        self._ensure_async_setup()
-        request = from_dict_to_request_response(
-            name="target_generate", 
-            candidate_input_ids=candidate_input_ids, 
-            candidate_logits=candidate_logits, 
-            candidate_logits_index=candidate_logits_index,
-            candidate_length=candidate_length, 
-            cur_len=cur_len, 
-            input_ids=input_ids, 
-            is_done_candidate=is_done_candidate,
-            order=order)     
+        with Timer("prepare_request_time"):
+            trim_level = TRIM_LEVEL
+            input_ids, candidate_input_ids = trim_ids(input_ids, candidate_input_ids, candidate_length, trim_level=trim_level, cur_len=cur_len)
+            # logger.debug(f"{candidate_input_ids.shape=} {input_ids.shape=}")
+            branch_parent_idxs = kwargs.pop('branch_parent_idxs', None)
+            branch_position_idxs = kwargs.pop('branch_position_idxs', None) 
+            
+            # input_ids, candidate_input_ids = prepare_tree_request(input_ids, candidate_input_ids, all_parent_idxs, all_position_idxs, candidate_length, trim_level)
+            my_logger.info(f"debug vice target_generate after trim {order=} {input_ids.shape=} {candidate_input_ids.shape=}")
+            # logger.debug(f"{input_ids=}")
+            # logger.debug(f"{candidate_input_ids=}")
+            self._ensure_async_setup()
+            request = from_dict_to_request_response(
+                name="target_generate", 
+                candidate_input_ids=candidate_input_ids, 
+                candidate_logits=candidate_logits, 
+                candidate_logits_index=candidate_logits_index,
+                candidate_length=candidate_length, 
+                cur_len=cur_len, 
+                input_ids=input_ids, 
+                is_done_candidate=is_done_candidate,
+                order=order,
+                branch_parent_idxs=branch_parent_idxs,
+                branch_position_idxs=branch_position_idxs
+                )     
         return_response = {"this_peer_finished": False, "input_ids": torch.tensor([]), "accepted_length": 0}  
         try:
             # 使用异步调用
-            logger.info(f"debug sending to target {order=}")
+            my_logger.info(f"debug sending to target {order=}")
             response = await self.async_stub.target_generate(request)
-            response = from_request_to_dict(response)
+            with Timer("parse_response_time"):
+                response = from_request_to_dict(response)
+            # response = from_request_to_dict(response)
             return_response.update(response)
             return return_response['input_ids'], return_response['this_peer_finished'], return_response['accepted_length']
         except Exception as e:
             print(f"async grpc error: {e}")
             raise
         
-
 def target_generate(self, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, cur_len, input_ids, is_done_candidate, candidate_generator=None, streamer=None, synced_gpus=None, order=0, trim_level=None):
         if trim_level is None: 
             trim_level = TRIM_LEVEL
@@ -186,7 +199,7 @@ async def async_spec_decoding(
         this_peer_finished = False
         is_first_iteration = True  # to preserve the same API in the output as other generation methods
         has_started = False
-        async_step = 4
+        async_step = ASYNC_STEP
         last_verified_idx = 0
         updated_by_target = False   
         verified_by_target = False
@@ -212,29 +225,32 @@ async def async_spec_decoding(
                 done_generations = sorted(done_generations, key=lambda x: x.order)
                 # 处理已完成的生成结果
                 if len(done_generations) == 0: 
-                    # logger.info(f"debug no done generations")
+                    # my_logger.info(f"debug no done generations")
                     await asyncio.sleep(0)
                 for done_future in done_generations:
                     # try:
                     # 获取异步任务的结果
                     
-                    result_input_ids, result_finished, accpeted_length = await done_future
+                    result_input_ids, result_finished, accepted_length = await done_future
                     this_peer_finished = result_finished
-                    logger.debug(f"done verification order={done_future.order}")
+                    my_logger.info(f"done verification order={done_future.order}")
                     if len(result_input_ids) == 0: 
-                        logger.debug(f"throw this result order={done_future.order}")
+                        # logger.debug(f"throw this result order={done_future.order}")
                         continue # 不返回任何东西说明这次的结果需要丢弃  
                     else: 
-                        accepted_length_list.append(accpeted_length)
+                        accepted_length_list.append(accepted_length)
                         step += 1
                         assisted_length_list.append(done_future.assisted_length)
                         common_index = longest_common_prefix_index(result_input_ids[0], input_ids[0]) #
                         this_peer_finished = result_finished
+                        if last_verified_idx >= len(result_input_ids[0]): 
+                            continue # this results have been verified by target, no need to update input_ids
                         last_verified_idx = len(result_input_ids[0])
                         verified_by_target = True
-                        if common_index == len(result_input_ids[0]) and len(input_ids[0]) < len(result_input_ids[0]) + async_step: 
+                        my_logger.info(f"verified_by_target {done_future.order=}")
+                        if common_index == len(result_input_ids[0]): 
                             continue # 说明 draft model 正确地生成了已验证的 token + 额外的 token，并且已经传上服务器了，就不需要管
-                        logger.debug(f"updated by target {done_future.order=}")
+                        my_logger.info(f"updated by target {done_future.order=}")
                         updated_by_target = True
                         input_ids = result_input_ids 
                         
@@ -244,24 +260,28 @@ async def async_spec_decoding(
             if skip_future_generate and not updated_by_target:
                 continue
             if (
-                (last_verified_idx != 0 and len(input_ids[0]) >= last_verified_idx + async_step + 1)): 
+                (last_verified_idx != 0 and len(input_ids[0]) + (async_step // 2) > last_verified_idx + async_step) and not verified_by_target): 
                 continue
             skip_future_generate = False
-            is_async_req = (not verified_by_target) or (len(input_ids[0]) != last_verified_idx)
+            is_async_req = ((not verified_by_target) or (len(input_ids[0]) != last_verified_idx)) and (order != 0 and order != 1)
+            my_logger.info(f"current {order=} {verified_by_target=} {updated_by_target=} {len(input_ids[0])=} {last_verified_idx=} {is_async_req=}")
             if is_async_req:
                 async_reqs.append(order)
+            # logger.debug(f"draft input ids {input_ids.shape=} {input_ids[0][-10:]=}")
             with Timer(f"draft_generate order={order}" if not is_async_req else f"draft_generate_async order={order}"):
                 cur_len, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, is_done_candidate  = self.draft_model.draft_generate(input_ids, candidate_generator, stopping_criteria)
             # barrier to avoid sending overwhelming requests
-            if order > 0 and (
-                (not verified_by_target) or 
-                (not updated_by_target)
-            ) and (
-                    is_done_candidate == True or 
-                    candidate_length == 0): 
-                logger.debug(f"skip this verification for input {input_ids.shape=} with {verified_by_target=} {updated_by_target=} {is_done_candidate=} {candidate_length=}")
-                skip_future_generate = True
-                continue
+            # if order > 0 and (
+            #     (not verified_by_target) or 
+            #     (not updated_by_target)
+            # ) and (
+            #         is_done_candidate == True or 
+            #         candidate_length == 0): 
+            #     my_logger.info(f"skip this verification for input {input_ids.shape=}, with {verified_by_target=} {updated_by_target=} {is_done_candidate=} {candidate_length=} {candidate_input_ids[:, -candidate_length:]=}")
+            #     updated_by_target = False 
+            #     verified_by_target = False
+            #     skip_future_generate = True
+            #     continue
             
             updated_by_target = False 
             verified_by_target = False
@@ -285,11 +305,11 @@ async def async_spec_decoding(
             task = asyncio.create_task(coro)
             task.order = order
             task.assisted_length = candidate_input_ids.shape[1] - cur_len 
-            logger.debug(f"sending task {order=}")
+            # logger.debug(f"sending task {order=}")
             order += 1
             if has_started == False: 
                 has_started = True
-                logger.debug(f"starting task {order=} awaiting")
+                # logger.debug(f"starting task {order=} awaiting")
                 input_ids, this_peer_finished, accepted_length = await task
                 accepted_length_list.append(accepted_length)
                 assisted_length_list.append(task.assisted_length)
@@ -306,7 +326,7 @@ async def async_spec_decoding(
         pending_generations = [] # clear the pending generations
         if streamer is not None:
             streamer.end()
-        logger.info(f"debug {len(async_reqs)=} {async_reqs=}")
+        my_logger.info(f"debug {len(async_reqs)=} {async_reqs=}")
         if (
             hasattr(candidate_generator, "assistant_model")
             and candidate_generator.assistant_model.generation_config.num_assistant_tokens_schedule == "heuristic"
@@ -393,20 +413,22 @@ def spec_decoding(
             if do_sample == False: 
                 candidate_logits = None 
                 candidate_logits_index = None
-            input_ids, this_peer_finished, _  = self.target_model.target_generate(
-                candidate_input_ids=candidate_input_ids, 
-                candidate_logits=candidate_logits, 
-                candidate_logits_index=candidate_logits_index,
-                candidate_length=candidate_length, 
-                cur_len=cur_len, 
-                input_ids=input_ids, 
-                is_done_candidate=is_done_candidate,
-                synced_gpus=synced_gpus, 
-                streamer=streamer
-                )
-            accepted_length_list.append(input_ids.shape[1] - cur_len - 1)
-            assisted_length_list.append(candidate_input_ids.shape[1] - cur_len)
-            
+            with Timer("client_side_target_generate"):
+                input_ids, this_peer_finished, accepted_length  = self.target_model.target_generate(
+                    candidate_input_ids=candidate_input_ids, 
+                    candidate_logits=candidate_logits, 
+                    candidate_logits_index=candidate_logits_index,
+                    candidate_length=candidate_length, 
+                    cur_len=cur_len, 
+                    input_ids=input_ids, 
+                    is_done_candidate=is_done_candidate,
+                    synced_gpus=synced_gpus, 
+                    streamer=streamer,
+                    order=counter
+                    )
+                accepted_length_list.append(input_ids.shape[1] - cur_len - 1)
+                assisted_length_list.append(candidate_input_ids.shape[1] - cur_len)
+            counter += 1
         if streamer is not None:
             streamer.end()
 
