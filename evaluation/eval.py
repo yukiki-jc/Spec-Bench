@@ -155,7 +155,7 @@ def get_model_answers(
             wall_time.append(total_time)
             conv.messages[-1][-1] = output
     print('Warmup done')
-
+    device = kwargs.pop("device", "cuda")
     accept_lengths_tree = []
     for question in tqdm(questions):
 
@@ -175,52 +175,53 @@ def get_model_answers(
                 conv.append_message(conv.roles[1], None)
                 conv.stop_str = "</s>"
                 prompt = conv.get_prompt()
-                inputs = tokenizer([prompt], return_tensors="pt").to("cuda")
+                # to model device 
+                inputs = tokenizer([prompt], return_tensors="pt").to(device)
                 input_ids = inputs.input_ids
-                try:
-                    torch.cuda.synchronize()
-                    start_time = time.perf_counter()
-                    output_ids, new_token, step, accept_length_tree, assited_length_list = forward_func(
-                        inputs,
-                        model,
-                        tokenizer,
-                        max_new_tokens,
-                        **kwargs,
-                    )
-                    torch.cuda.synchronize()
-                    total_time = time.perf_counter() - start_time
-                    accept_lengths_tree.extend(accept_length_tree)
-                    output_ids = output_ids[0][len(input_ids[0]):]
+                # try:
+                torch.cuda.synchronize()
+                start_time = time.perf_counter()
+                output_ids, new_token, step, accept_length_tree, assited_length_list = forward_func(
+                    inputs,
+                    model,
+                    tokenizer,
+                    max_new_tokens,
+                    **kwargs,
+                )
+                torch.cuda.synchronize()
+                total_time = time.perf_counter() - start_time
+                accept_lengths_tree.extend(accept_length_tree)
+                output_ids = output_ids[0][len(input_ids[0]):]
 
-                    if conv.stop_token_ids:
-                        stop_token_ids_index = [
-                            i
-                            for i, id in enumerate(output_ids)
-                            if id in conv.stop_token_ids
-                        ]
-                        if len(stop_token_ids_index) > 0:
-                            output_ids = output_ids[: stop_token_ids_index[0]]
+                if conv.stop_token_ids:
+                    stop_token_ids_index = [
+                        i
+                        for i, id in enumerate(output_ids)
+                        if id in conv.stop_token_ids
+                    ]
+                    if len(stop_token_ids_index) > 0:
+                        output_ids = output_ids[: stop_token_ids_index[0]]
 
-                    output = tokenizer.decode(
-                        output_ids,
-                        spaces_between_special_tokens=False,
-                    )
-                    if conv.stop_str and output.find(conv.stop_str) > 0:
-                        output = output[: output.find(conv.stop_str)]
-                    for special_token in tokenizer.special_tokens_map.values():
-                        if isinstance(special_token, list):
-                            for special_tok in special_token:
-                                output = output.replace(special_tok, "")
-                        else:
-                            output = output.replace(special_token, "")
-                    output = output.strip()
+                output = tokenizer.decode(
+                    output_ids,
+                    spaces_between_special_tokens=False,
+                )
+                if conv.stop_str and output.find(conv.stop_str) > 0:
+                    output = output[: output.find(conv.stop_str)]
+                for special_token in tokenizer.special_tokens_map.values():
+                    if isinstance(special_token, list):
+                        for special_tok in special_token:
+                            output = output.replace(special_tok, "")
+                    else:
+                        output = output.replace(special_token, "")
+                output = output.strip()
 
-                    if conv.name == "xgen" and output.startswith("Assistant:"):
-                        output = output.replace("Assistant:", "", 1).strip()
-                except RuntimeError as e:
-                    print(e)
-                    print("ERROR question ID: ", question["question_id"])
-                    output = "errorERROR"
+                if conv.name == "xgen" and output.startswith("Assistant:"):
+                    output = output.replace("Assistant:", "", 1).strip()
+                # except RuntimeError as e:
+                #     print(e)
+                #     print("ERROR question ID: ", question["question_id"])
+                #     output = "errorERROR"
 
                 turns.append(output)
                 steps.append(int(step))

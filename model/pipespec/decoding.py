@@ -232,9 +232,8 @@ async def async_spec_decoding(
                     # 获取异步任务的结果
                     
                     result_input_ids, result_finished, accepted_length = await done_future
-                    this_peer_finished = result_finished
                     my_logger.info(f"done verification order={done_future.order}")
-                    if len(result_input_ids) == 0: 
+                    if len(result_input_ids) == 0 or this_peer_finished: 
                         # logger.debug(f"throw this result order={done_future.order}")
                         continue # 不返回任何东西说明这次的结果需要丢弃  
                     else: 
@@ -248,7 +247,7 @@ async def async_spec_decoding(
                         last_verified_idx = len(result_input_ids[0])
                         verified_by_target = True
                         my_logger.info(f"verified_by_target {done_future.order=}")
-                        if common_index == len(result_input_ids[0]): 
+                        if (not this_peer_finished) and common_index == len(result_input_ids[0]): 
                             continue # 说明 draft model 正确地生成了已验证的 token + 额外的 token，并且已经传上服务器了，就不需要管
                         my_logger.info(f"updated by target {done_future.order=}")
                         updated_by_target = True
@@ -408,7 +407,7 @@ def spec_decoding(
         while self.draft_model._has_unfinished_sequences(this_peer_finished, synced_gpus, device=input_ids.device):
             step += 1
             with Timer("draft_generate"):
-                cur_len, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, is_done_candidate  = self.draft_model.draft_generate(input_ids, candidate_generator, stopping_criteria)
+                cur_len, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, is_done_candidate = self.draft_model.draft_generate(input_ids, candidate_generator, stopping_criteria)
             counter += 1
             if do_sample == False: 
                 candidate_logits = None 

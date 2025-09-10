@@ -21,6 +21,7 @@ from pipeline_spec.src.model.spec_wrapper import AsyncSpecDecodingWrapper, SpecL
 from pipeline_spec.src.model.spec_wrapper import SpecDecodingWrapper
 from pipeline_spec.src.model.vice_wrapper import ViceModelWrapper
 from model.pipespec.decoding import async_target_generate, target_generate, async_spec_decoding, spec_decoding
+from model.pipespec.tree_decoding import async_tree_spec_decoding
 from loguru import logger
 
 def pipespec_forward(inputs, model, tokenizer, max_new_tokens, do_sample=False, temperature=0.0, drafter=None, drafter_tokenizer=None, num_assistant_tokens=4, assistant_confidence_threshold=0.0):
@@ -115,6 +116,12 @@ if __name__ == "__main__":
         default=False,
         help="Whether to use async mode.",
     )
+    parser.add_argument(
+        "--use-tree",
+        type=bool,
+        default=False,
+        help="Whether to use tree.",
+    )
     args = parser.parse_args()
 
     # GenerationMixin._assisted_decoding = new_assisted_decoding
@@ -126,6 +133,7 @@ if __name__ == "__main__":
         answer_file = f"data/{args.bench_name}/model_answer/{args.model_id}.jsonl"
 
     print(f"Output to {answer_file}")
+    AsyncSpecDecodingWrapper.async_tree_spec_decoding = async_tree_spec_decoding
     AsyncSpecDecodingWrapper.async_spec_decoding = async_spec_decoding
     SpecDecodingWrapper.spec_decoding = spec_decoding
     ViceModelWrapper.async_target_generate = async_target_generate
@@ -141,7 +149,7 @@ if __name__ == "__main__":
     
     
     if args.async_mode:
-        inference_model = AsyncSpecDecodingWrapper(draft_model, vice_target_model)
+        inference_model = AsyncSpecDecodingWrapper(draft_model, vice_target_model, use_tree=args.use_tree)
         
     else:
         inference_model = SpecDecodingWrapper(draft_model, vice_target_model)
@@ -212,7 +220,8 @@ if __name__ == "__main__":
         temperature=args.temperature,
         do_sample=do_sample,
         drafter_tokenizer=drafter_tokenizer,
-        num_assistant_tokens=args.num_assistant_tokens
+        num_assistant_tokens=args.num_assistant_tokens,
+        device=CLIENT_DEVICE
     )
 
     reorg_answer_file(answer_file)

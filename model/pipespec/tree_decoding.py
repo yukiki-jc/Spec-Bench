@@ -14,6 +14,7 @@ import asyncio
 # from loguru import logger
 from pipeline_spec.src.utils.debug_logger import my_logger
 from pipeline_spec.src.utils.timer import Timer
+from pipeline_spec.src.model.tree_utils import _extract_sequences_from_tree_branch
 from pipeline_spec.src.model.generation_mixin import longest_common_prefix_index
 from transformers.generation.utils import LogitsProcessorList, StoppingCriteriaList, GreedySearchOutput, ModelOutput, GenerationConfig, GenerateNonBeamOutput
 from dataclasses import dataclass
@@ -99,68 +100,6 @@ class GenerateDecoderOnlyOutput(ModelOutput):
     hidden_states: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     past_key_values: Optional[Tuple[Tuple[Tuple[torch.FloatTensor]]]] = None
 
-async def async_target_generate(self, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, cur_len, input_ids, is_done_candidate, candidate_generator=None, streamer=None, synced_gpus=None, order=0, **kwargs):
-        # 确保在当前事件循环中设置异步 channel
-        with Timer("prepare_request_time"):
-            trim_level = TRIM_LEVEL
-            input_ids, candidate_input_ids = trim_ids(input_ids, candidate_input_ids, candidate_length, trim_level=trim_level, cur_len=cur_len)
-            # logger.debug(f"{candidate_input_ids.shape=} {input_ids.shape=}")
-            branch_parent_idxs = kwargs.pop('branch_parent_idxs', None)
-            branch_position_idxs = kwargs.pop('branch_position_idxs', None) 
-            
-            # input_ids, candidate_input_ids = prepare_tree_request(input_ids, candidate_input_ids, all_parent_idxs, all_position_idxs, candidate_length, trim_level)
-            my_logger.info(f"debug vice target_generate after trim {order=} {input_ids.shape=} {candidate_input_ids.shape=}")
-            # logger.debug(f"{input_ids=}")
-            # logger.debug(f"{candidate_input_ids=}")
-            self._ensure_async_setup()
-            request = from_dict_to_request_response(
-                name="target_generate", 
-                candidate_input_ids=candidate_input_ids, 
-                candidate_logits=candidate_logits, 
-                candidate_logits_index=candidate_logits_index,
-                candidate_length=candidate_length, 
-                cur_len=cur_len, 
-                input_ids=input_ids, 
-                is_done_candidate=is_done_candidate,
-                order=order,
-                branch_parent_idxs=branch_parent_idxs,
-                branch_position_idxs=branch_position_idxs
-                )     
-        return_response = {"this_peer_finished": False, "input_ids": torch.tensor([]), "accepted_length": 0}  
-        try:
-            # 使用异步调用
-            my_logger.info(f"debug sending to target {order=}")
-            response = await self.async_stub.target_generate(request)
-            with Timer("parse_response_time"):
-                response = from_request_to_dict(response)
-            # response = from_request_to_dict(response)
-            return_response.update(response)
-            return return_response['input_ids'], return_response['this_peer_finished'], return_response['accepted_length']
-        except Exception as e:
-            print(f"async grpc error: {e}")
-            raise
-        
-def target_generate(self, candidate_input_ids, candidate_logits, candidate_logits_index, candidate_length, cur_len, input_ids, is_done_candidate, candidate_generator=None, streamer=None, synced_gpus=None, order=0, trim_level=None):
-        if trim_level is None: 
-            trim_level = TRIM_LEVEL
-        stub = self.stub
-        # lists = ['input_ids', 'attention_mask']
-        input_ids, candidate_input_ids = trim_ids(input_ids, candidate_input_ids, candidate_length, trim_level=trim_level)
-        request = from_dict_to_request_response(
-            name="target_generate", 
-            candidate_input_ids=candidate_input_ids, 
-            candidate_logits=candidate_logits, 
-            candidate_logits_index=candidate_logits_index,
-            candidate_length=candidate_length, 
-            cur_len=cur_len, 
-            input_ids=input_ids, 
-            is_done_candidate=is_done_candidate, order=order)     
-        return_response = {"this_peer_finished": False, "input_ids": torch.tensor([]), "accepted_length": 0}  
-        response = stub.target_generate(request)
-        response = from_request_to_dict(response)
-        return_response.update(response)
-        return return_response['input_ids'], return_response['this_peer_finished'], return_response['accepted_length']
-       
 async def async_tree_spec_decoding(
         self,
         input_ids: torch.LongTensor,
@@ -204,6 +143,9 @@ async def async_tree_spec_decoding(
         updated_by_target = False   
         verified_by_target = False
         skip_future_generate = False
+        accepted_length_list = []
+        assisted_length_list = []
+        step = 0
         while self.draft_model._has_unfinished_sequences(this_peer_finished, synced_gpus, device=input_ids.device):
             # 检查已完成的异步任务
             s = time.perf_counter()
@@ -230,19 +172,20 @@ async def async_tree_spec_decoding(
                     # 获取异步任务的结果
                     
                     result_input_ids, result_finished, accepted_length = await done_future
-                    this_peer_finished = result_finished
                     my_logger.info(f"done verification order={done_future.order}")
-                    if len(result_input_ids) == 0: 
+                    if len(result_input_ids) == 0 or this_peer_finished: 
                         # logger.debug(f"throw this result order={done_future.order}")
                         continue # 不返回任何东西说明这次的结果需要丢弃  
-                    else: 
-                        # logger.debug(f"result_input_ids {result_input_ids.shape=} {result_input_ids[0]=} {accepted_length=}")
+                    else:
                         # extract tree from tree state 
+                        step += 1
+                        assisted_length_list.append(done_future.assisted_length)
                         tree_state = self.draft_model.tree_state
                         sequences, paths = _extract_sequences_from_tree_branch(input_ids[0], tree_state.parent_idxs[0], range(tree_state.last_tree_layer_node_idx, input_ids.shape[1]), tree_state.branch_start_idx)
                         id_len = result_input_ids.shape[1]
                         result_path = result_input_ids[0, id_len // 2 + 1:]
                         result_input_ids = result_input_ids[:, :id_len // 2 + 1].to(input_ids.device) 
+                        accepted_length_list.append(result_input_ids.shape[1] - done_future.branch_start_idx)
                         # # logger.debug(f"{result_path=} {result_input_ids[0]=}")
                         if last_verified_idx >= len(result_input_ids[0]): 
                             continue
@@ -318,12 +261,17 @@ async def async_tree_spec_decoding(
             # 使用create_task创建Future对象
             task = asyncio.create_task(coro)
             task.order = order
+            task.assisted_length = candidate_input_ids.shape[1] - cur_len 
+            task.branch_start_idx = self.draft_model.tree_state.branch_start_idx
             # logger.debug(f"sending task {order=}")
             order += 1
             if has_started == False: 
                 has_started = True
                 # logger.debug(f"starting task {order=} awaiting")
                 result_input_ids, this_peer_finished, accepted_length = await task
+                accepted_length_list.append(accepted_length)
+                assisted_length_list.append(task.assisted_length)
+                step += 1
                 updated_by_target = True
                 if self.use_tree:
                     id_len = result_input_ids.shape[1]
@@ -382,4 +330,4 @@ async def async_tree_spec_decoding(
                     past_key_values=model_kwargs.get("past_key_values"),
                 )
         else:
-            return input_ids
+            return input_ids, step - 1, accepted_length_list, assisted_length_list
