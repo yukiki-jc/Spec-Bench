@@ -20,11 +20,15 @@ GPU_DEVICES=0,1,2
 
 bench_NAME="pipespec_bench_0.05_0.03_0.15"
 torch_dtype="float16" # ["float32", "float64", "float16", "bfloat16"]
-shared_suffix="_with_log"
+shared_suffix="_w3d6_tree"
 set -x
 num_assistant_tokens=6
 mode="pipespec_mp_sm_async${shared_suffix}"
-CUDA_VISIBLE_DEVICES=${GPU_DEVICES} IS_SERVER=1 SIMULATE_DEV_DRAFT_TIME=0.05 SIMULATE_SERVER_DRAFT_TIME=0.03 SIMULATE_SERVER_VERIFY_TIME=0.15 TREE_WIDTH=4 TREE_DEPTH=6 NUM_ASSISTED_TOKENS=6 USE_TREE=0 GENERATE_TOKEN_NUM=512 python -m evaluation.inference_pipespec --model-path $Vicuna_PATH --drafter-path $Drafter_PATH --model-id ${MODEL_NAME}-${mode}-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --num_assistant_tokens ${num_assistant_tokens} --max-new-tokens 512 --async-mode True > ${MODEL_NAME}-${mode}-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens}.log 2>&1
+CUDA_VISIBLE_DEVICES=${GPU_DEVICES} IS_SERVER=1 SIMULATE_DEV_DRAFT_TIME=0.05 SIMULATE_SERVER_DRAFT_TIME=0.03 SIMULATE_SERVER_VERIFY_TIME=0.15 TREE_WIDTH=3 TREE_DEPTH=6 NUM_ASSISTED_TOKENS=6 USE_TREE=1 GENERATE_TOKEN_NUM=512 python -m evaluation.inference_pipespec --model-path $Vicuna_PATH --drafter-path $Drafter_PATH --model-id ${MODEL_NAME}-${mode}-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --num_assistant_tokens ${num_assistant_tokens} --max-new-tokens 512 --async-mode True --use-tree True > ${MODEL_NAME}-${mode}-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens}.log 2>&1
+
+# num_assistant_tokens=6
+# mode="pipespec_mp_sm_async${shared_suffix}"
+# CUDA_VISIBLE_DEVICES=${GPU_DEVICES} IS_SERVER=1 SIMULATE_DEV_DRAFT_TIME=0.05 SIMULATE_SERVER_DRAFT_TIME=0.03 SIMULATE_SERVER_VERIFY_TIME=0.15 TREE_WIDTH=4 TREE_DEPTH=6 NUM_ASSISTED_TOKENS=6 USE_TREE=0 GENERATE_TOKEN_NUM=512 python -m evaluation.inference_pipespec --model-path $Vicuna_PATH --drafter-path $Drafter_PATH --model-id ${MODEL_NAME}-${mode}-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens} --bench-name $bench_NAME --temperature $TEMP --dtype $torch_dtype --num_assistant_tokens ${num_assistant_tokens} --max-new-tokens 512 --async-mode True > ${MODEL_NAME}-${mode}-${DRAFT_MODEL_NAME}-${torch_dtype}-temp-${TEMP}-asstkn-${num_assistant_tokens}.log 2>&1
 
 num_assistant_tokens=5
 # mode="edge_spec${shared_suffix}"
